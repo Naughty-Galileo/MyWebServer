@@ -5,11 +5,9 @@
 #include <pthread.h>
 #include <semaphore.h>
 
-class sem
-{
+class sem {
 public:
-    sem()
-    {
+    sem() {
         if (sem_init(&m_sem, 0, 0) != 0)
         {
             throw std::exception();
@@ -38,6 +36,8 @@ public:
 private:
     sem_t m_sem;
 };
+
+
 class locker
 {
 public:
@@ -68,6 +68,8 @@ public:
 private:
     pthread_mutex_t m_mutex;
 };
+
+
 class cond
 {
 public:
