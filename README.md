@@ -101,5 +101,33 @@
     pthread_mutex_t *mp, const structtimespec * abstime);
     ```
 
+## 线程池  ./threadpool/threadpool.h
+> 主线程负责读写，工作线程（线程池中的线程）负责处理逻辑（HTTP请求报文的解析）
+
+### pthread相关函数
+```c++
+#include <pthread.h>
+
+// 创建一个线程
+int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg);
+
+// 等待某个线程结束
+int pthread_join(pthread_t thread, void **retval);
+
+// 将已经运行中的线程设定为分离状态
+// 线程的默认属性是非分离状态，这种情况下，原有的线程等待创建的线程结束。只有当pthread_join()函数返回时，创建的线程才算终止，才能释放自己占用的系统资源。而分离线程不是这样子的，它没有被其他的线程所等待，自己运行结束了，线程也就终止了，马上释放系统资源
+int pthread_detach(pthread_t thread);
+
+// 线程退出
+//在线程执行的函数中调用此接口
+void pthread_exit(void *value_ptr);
+// pthread_exit(NULL);
+
+// 线程取消
+int pthread_cancel(pthread_t thread);
+// pthread_cancel(pthread_self()); // pthread_self()获取PID
+```
+
+
 
 
