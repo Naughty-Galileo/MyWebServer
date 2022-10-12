@@ -26,12 +26,11 @@
 #include "../timer/lst_timer.h"
 #include "../log/log.h"
 
-class http_conn
-{
+class http_conn {
 public:
-    static const int FILENAME_LEN = 200;
-    static const int READ_BUFFER_SIZE = 2048;
-    static const int WRITE_BUFFER_SIZE = 1024;
+    static const int FILENAME_LEN = 200; // 读取文件的名字
+    static const int READ_BUFFER_SIZE = 2048;  // read buffer
+    static const int WRITE_BUFFER_SIZE = 1024;  // write buffer
     enum METHOD
     {
         GET = 0,
@@ -44,7 +43,7 @@ public:
         CONNECT,
         PATH
     };
-    enum CHECK_STATE
+    enum CHECK_STATE  // 主状态机状态
     {
         CHECK_STATE_REQUESTLINE = 0,
         CHECK_STATE_HEADER,
@@ -61,7 +60,7 @@ public:
         INTERNAL_ERROR,
         CLOSED_CONNECTION
     };
-    enum LINE_STATUS
+    enum LINE_STATUS  // 从状态机状态
     {
         LINE_OK = 0,
         LINE_BAD,
@@ -111,39 +110,46 @@ public:
     static int m_epollfd;
     static int m_user_count;
     MYSQL *mysql;
-    int m_state;  //读为0, 写为1
+    int m_state;  // 读为0, 写为1
 
 private:
     int m_sockfd;
     sockaddr_in m_address;
-    char m_read_buf[READ_BUFFER_SIZE];
-    int m_read_idx;
-    int m_checked_idx;
-    int m_start_line;
+
+    char m_read_buf[READ_BUFFER_SIZE]; // 存储读取的请求报文数据
+    int m_read_idx;    // 缓冲区中m_read_buf中数据的最后一个字节的下一个位置
+    int m_checked_idx; // m_read_buf读取的位置m_checked_idx
+    int m_start_line; // m_read_buf中已经解析的字符个数
     char m_write_buf[WRITE_BUFFER_SIZE];
     int m_write_idx;
+
     CHECK_STATE m_check_state;
     METHOD m_method;
+    
+    // 请求报文对应的变量
     char m_real_file[FILENAME_LEN];
     char *m_url;
     char *m_version;
     char *m_host;
     int m_content_length;
     bool m_linger;
-    char *m_file_address;
-    struct stat m_file_stat;
-    struct iovec m_iv[2];
+
+    char *m_file_address;  // 读取服务器上的文件地址
+    struct stat m_file_stat; 
+    struct iovec m_iv[2];  // Structure for scatter/gather I/O
     int m_iv_count;
     int cgi;        //是否启用的POST
     char *m_string; //存储请求头数据
-    int bytes_to_send;
-    int bytes_have_send;
+    int bytes_to_send;  // 剩余发送字节数
+    int bytes_have_send; // 已发送字节数
+
     char *doc_root;
 
     map<string, string> m_users;
     int m_TRIGMode;
     int m_close_log;
-
+    
+    // sql相关信息
     char sql_user[100];
     char sql_passwd[100];
     char sql_name[100];
