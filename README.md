@@ -128,6 +128,94 @@ int pthread_cancel(pthread_t thread);
 // pthread_cancel(pthread_self()); // pthread_self()获取PID
 ```
 
+## 数据库连接池 ./CGImysql/sql_connection_pool.cpp :smile:
+> 每一个HTTP连接获取一个数据库连接，获取其中的用户账号密码进行对比，而后再释放该数据库连接 \
+> 在程序初始化的时候，集中创建多个数据库连接，并把他们集中管理，供程序使用，可以保证较快的数据库读写速度，更加安全可靠 \
+> 类似于线程池的操作
 
+### connection_pool 连接池
+- 单例 设计模式
+
+#### mysql API
+- 使用mysql_init()初始化连接
+- 使用mysql_real_connect()建立一个到mysql数据库的连接
+- 使用mysql_query()执行查询语句
+- 使用result = mysql_store_result(mysql)获取结果集
+- 使用mysql_num_fields(result)获取查询的列数，mysql_num_rows(result)获取结果集的行数
+- 通过mysql_fetch_row(result)不断获取下一行，然后循环输出
+- 使用mysql_free_result(result)释放结果集所占内存
+- 使用mysql_close(conn)关闭连接
+
+```c++
+// 初始化
+MYSQL *mysql_init(MYSQL *mysql); // 返回分配的句柄MYSQL指针
+
+
+// 连接数据库
+MYSQL *mysql_real_connect(MYSQL *mysql, const char *host, const char *user, const char *passwd, const char *db, unsigned int port, const char *unix_socket, unsigned long client_flag); // 成功返回 连接句柄,失败返回 NULL
+
+// 关闭连接
+mysql_close(mysql);
+
+// 读取数据
+int mysql_query(MYSQL *mysql, const char *query);
+
+// 获取结果集
+MTSQL_RES * mysql_store_result (MYSQL * mysql); // 成功返回结果集，失败返回NULL
+
+typedef struct MYSQL_RES {
+  uint64_t row_count;
+  MYSQL_FIELD *fields;
+  struct MYSQL_DATA *data;
+  MYSQL_ROWS *data_cursor;
+  unsigned long *lengths; /* column lengths of current row */
+  MYSQL *handle;          /* for unbuffered reads */
+  const struct MYSQL_METHODS *methods;
+  MYSQL_ROW row;         /* If unbuffered read */
+  MYSQL_ROW current_row; /* buffer to current row */
+  struct MEM_ROOT *field_alloc;
+  unsigned int field_count, current_field;
+  bool eof; /* Used by mysql_fetch_row */
+  /* mysql_stmt_close() had to cancel this result */
+  bool unbuffered_fetch_cancelled;
+  enum enum_resultset_metadata metadata;
+  void *extension;
+} MYSQL_RES;
+
+// 获取结果集 一行一行fetch结果集中的数据
+MYSQL_ROW * mysql_fetch_row(MYSQL_RES * result);
+
+typedef struct MYSQL_ROWS {
+  struct MYSQL_ROWS *next; /* list of rows */
+  MYSQL_ROW data;
+  unsigned long length;
+} MYSQL_ROWS;
+
+// 解析结果多少行
+unsigned int mysql_num_fields (MYSQL_RES *res);
+
+// 从mysql中句柄中解析有多少行
+unsigned int mysql_field_count(MYSQL *mysql);
+
+// 获取表头
+MYSQL_FIELD *mysql_fetch_fields(MYSQL_RES *res);
+
+typedef struct st_mysql_field {                                                             
+ 96   char *name;                 /* Name of column */
+ 97   char *org_name;             /* Original column name, if an alias */
+ 98   char *table;                /* Table of column if column was a field */
+ 99   char *org_table;            /* Org table name, if table was an alias */
+100   char *db;                   /* Database for table */
+101   char *catalog;          /* Catalog for table */
+102   char *def;                  /* Default value (set by mysql_list_fields) */
+}MYSQL_FIELD
+```
+
+### RAII机制
+> Resource Acquisition Is Initialization（资源获取即初始化），RAII是C++语法体系中的一种常用的合理管理资源避免出现内存泄漏的常用方法。以对象管理资源，利用的就是C++构造的对象最终会被对象的析构函数销毁的原则
+
+- 优点
+    - 不需要显式地释放资源。
+    - 采用这种方式，对象所需的资源只在其生命期内始终保持有效
 
 
