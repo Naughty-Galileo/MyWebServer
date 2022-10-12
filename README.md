@@ -6,7 +6,7 @@
 > 特别感谢[TinyWebServer](https://github.com/qinguoyi/TinyWebServer)这一优秀项目
 
 
-## 线程同步 ./lock/locker.h
+## 线程同步 ./lock/locker.h :smile:
 > 为允许在线程或进程间共享数据，同步通常是必须的，常见的同步方式有：**互斥锁、条件变量、读写锁、信号量**。\
 > 另外，对于进程间的同步，也可以通过进程间通信的方式进行同步，包括**管道（无名管道、有名管道）、信号量、消息队列、共享内存、远程过程调用、Socket**
 
@@ -101,7 +101,7 @@
     pthread_mutex_t *mp, const structtimespec * abstime);
     ```
 
-## 线程池  ./threadpool/threadpool.h
+## 线程池  ./threadpool/threadpool.h  :smile:
 > 主线程负责读写，工作线程（线程池中的线程）负责处理逻辑（HTTP请求报文的解析）
 
 ### pthread相关函数
