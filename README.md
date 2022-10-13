@@ -518,3 +518,169 @@ int fcntl(int fd, int cmd, struct flock *lock);
 
 
 ## <div align="center"> 定时器 [./timer/lst_timer.h](./timer/lst_timer.h) :smile:</div> 
+> 由于非活跃连接占用了连接资源，严重影响服务器的性能，通过实现一个服务器定时器，处理这种非活跃连接，释放连接资源。利用alarm函数周期性地触发SIGALRM信号,该信号的信号处理函数利用管道通知主循环执行定时器链表上的定时任务
+
+---
+
+### 定时方法与信号通知流程
+
+<details>
+<summary> <b> 定时方法基础API </b> </summary>
+
+sigaction结构体
+```c++
+struct sigaction {
+    void (*sa_handler)(int);
+    void (*sa_sigaction)(int, siginfo_t *, void *);
+    sigset_t sa_mask;
+    int sa_flags;
+    void (*sa_restorer)(void);
+}
+// sa_handler是一个函数指针，指向信号处理函数
+// sa_sigaction同样是信号处理函数，有三个参数，可以获得关于信号更详细的信息
+// sa_mask用来指定在信号处理函数执行期间需要被屏蔽的信号
+// sa_flags用于指定信号处理的行为
+//      SA_RESTART，使被信号打断的系统调用自动重新发起
+//      SA_NOCLDSTOP，使父进程在它的子进程暂停或继续运行时不会收到 SIGCHLD 信号
+//      SA_NOCLDWAIT，使父进程在它的子进程退出时不会收到 SIGCHLD 信号，这时子进程如果退出也不会成为僵尸进程
+//      SA_NODEFER，使对信号的屏蔽无效，即在信号处理函数执行期间仍能发出这个信号
+//      SA_RESETHAND，信号处理之后重新设置为默认的处理方式
+//      SA_SIGINFO，使用 sa_sigaction 成员而不是 sa_handler 作为信号处理函数
+// sa_restorer一般不使用
+```
+
+sigaction函数
+```c++
+#include <signal.h>
+int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
+// signum表示操作的信号
+// act表示对信号设置新的处理方式
+// oldact表示信号原来的处理方式
+// 返回值，0 表示成功，-1 表示有错误发生
+```
+
+sigfillset函数
+```c++
+#include <signal.h>
+int sigfillset(sigset_t *set); // 用来将参数set信号集初始化，然后把所有的信号加入到此信号集里
+```
+
+SIGALRM、SIGTERM信号
+```c++
+#define SIGALRM  14     //由alarm系统调用产生timer时钟信号
+#define SIGTERM  15     //终端发送的终止信号
+```
+
+alarm函数
+```c++
+#include <unistd.h>;
+unsigned int alarm(unsigned int seconds);
+// 设置信号传送闹钟，即用来设置信号SIGALRM在经过参数seconds秒数后发送给目前的进程
+// 如果未设置信号SIGALRM的处理函数，那么alarm()默认处理终止进程
+```
+
+socketpair函数
+```c++
+#include <sys/types.h>
+#include <sys/socket.h>
+
+int socketpair(int domain, int type, int protocol, int sv[2]);
+// domain表示协议族，PF_UNIX或者AF_UNIX
+// type表示协议，可以是SOCK_STREAM或者SOCK_DGRAM，SOCK_STREAM基于TCP，SOCK_DGRAM基于UDP
+// protocol表示类型，只能为0
+// sv[2]表示套节字柄对，该两个句柄作用相同，均能进行读写双向操作
+// 返回结果， 0为创建成功，-1为创建失败
+```
+
+send函数
+```c++
+#include <sys/types.h>
+#include <sys/socket.h>
+
+ssize_t send(int sockfd, const void *buf, size_t len, int flags); // send a message on a socket
+```
+
+</details>
+
+### 信号通知流程
+> Linux下的信号采用的==异步处理机制==，信号处理函数和当前进程是两条不同的执行路线
+
+- 统一事件源
+> 指将信号事件与其他事件一样被处理
+> 信号处理函数使用管道将信号传递给主循环，信号处理函数往管道的写端写入信号值，主循环则从管道的读端读出信号值，使用I/O复用系统调用来监听管道读端的可读事件，这样信号事件与其他文件描述符都可以通过epoll来监测，从而实现统一处理
+
+- 信号处理机制
+  - 信号的接收
+      - 接收信号的任务是由内核代理的，当内核接收到信号后，会将其放到对应进程的信号队列中，同时向进程发送一个中断，使其陷入内核态。注意，此时信号还只是在队列中，对进程来说暂时是不知道有信号到来的
+  - 信号的检测
+      - 进程从内核态返回到用户态前进行信号检测
+      - 进程在内核态中，从睡眠状态被唤醒的时候进行信号检测
+  - 信号的处理
+      - (内核)信号处理函数是运行在用户态的，调用处理函数前，内核会将当前内核栈的内容备份拷贝到用户栈上，并且修改指令寄存器（eip）将其指向信号处理函数
+      - (用户)接下来进程返回到用户态中，执行相应的信号处理函数
+      - (内核)信号处理函数执行完成后，还需要返回内核态，检查是否还有其它信号未处理
+      - (用户)如果所有信号都处理完成，就会将内核栈恢复（从用户栈的备份拷贝回来），同时恢复指令寄存器（eip）将其指向中断前的运行位置，最后回到用户态继续执行进程
+  
+---
+
+### 定时器及其容器设计、定时任务处理
+> 1、**定时器设计**，将连接资源和定时事件等封装起来，具体包括连接资源、超时时间和回调函数，这里的回调函数指向定时事件
+> 2、**定时器容器设计**，将多个定时器串联组织起来统一处理，具体包括升序链表设计
+> 3、**定时任务处理函数**，该函数封装在容器类中，具体的，函数遍历升序链表容器，根据超时时间，处理对应的定时器
+
+- 定时器设计
+  - 连接资源
+    - 客户端套接字地址
+    - 文件描述符
+    - 定时器
+  - 定时事件
+    - 回调函数 删除非活动的socket上的注册事件
+  - 超时时间
+    - 浏览器和服务器连接时刻 + 固定时间(TIMESLOT)
+
+### 定时器容器
+> 项目中的定时器容器为带头尾结点的升序双向链表，具体的为每个连接创建一个定时器，将其添加到链表中，并按照超时时间升序排列。执行定时任务时，将到期的定时器从链表中删除。
+> 主要是双向链表的查删改操作
+
+- add_timer
+- adjust_timer
+- del_timer
+- add_timer(util_timer *timer, util_timer *lst_head)
+
+
+### 定时任务处理函数
+> 使用统一事件源，SIGALRM信号每次被触发，主循环中调用一次定时任务处理函数，处理链表容器中到期的定时器
+
+- 遍历链表
+    - 当前时间小于定时器超时时间 后续都小 跳出循环
+    - 大于超时时间 执行回调函数（删除注册事件、关闭连接） 删除此节点
+
+
+### 怎么用的定时器？
+- 浏览器与服务器连接时，创建该连接对应的定时器，并将该定时器添加到链表上
+- 处理异常事件时，执行定时事件，服务器关闭连接，从链表上移除对应定时器
+- 处理定时信号时，将定时标志设置为true
+- 处理读事件时，若某连接上发生读事件，将对应定时器向后移动，否则，执行定时事件
+- 处理写事件时，若服务器通过某连接给浏览器发送数据，将对应定时器向后移动，否则，执行定时事件
+
+```c++
+/* 定时器相关参数 */
+static int pipefd[2];
+static sort_timer_lst timer_lst
+
+/* 每个user（http请求）对应的timer */
+client_data* user_timer = new client_data[MAX_FD];
+/* 每隔TIMESLOT时间触发SIGALRM信号 */
+alarm(TIMESLOT);
+/* 创建管道，注册pipefd[0]上的可读事件 */
+int ret = socketpair(PF_UNIX, SOCK_STREAM, 0, pipefd);
+/* 设置管道写端为非阻塞 */
+setnonblocking(pipefd[1]);
+/* 设置管道读端为ET非阻塞，并添加到epoll内核事件表 */
+addfd(epollfd, pipefd[0], false);
+
+addsig(SIGALRM, sig_handler, false);
+addsig(SIGTERM, sig_handler, false);
+```
+---
+
