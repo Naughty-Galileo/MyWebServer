@@ -6,7 +6,7 @@
 > 特别感谢[TinyWebServer](https://github.com/qinguoyi/TinyWebServer)这一优秀项目
 
 
-## <div align="center"> 线程同步 ./lock/locker.h :smile: </div> 
+## <div align="center"> 线程同步 [./lock/locker.h](./lock/locker.h) :smile: </div> 
 > 为允许在线程或进程间共享数据，同步通常是必须的，常见的同步方式有：**互斥锁、条件变量、读写锁、信号量**。\
 > 另外，对于进程间的同步，也可以通过进程间通信的方式进行同步，包括**管道（无名管道、有名管道）、信号量、消息队列、共享内存、远程过程调用、Socket**
 
@@ -115,7 +115,7 @@
 </details>
 
 
-## <div align="center"> 线程池  ./threadpool/threadpool.h  :smile:</div> 
+## <div align="center"> 线程池  [./threadpool/threadpool.h](./threadpool/threadpool.h)  :smile:</div> 
 > 主线程负责读写，工作线程（线程池中的线程）负责处理逻辑（HTTP请求报文的解析）
 
 ### pthread相关函数
@@ -142,7 +142,7 @@ int pthread_cancel(pthread_t thread);
 // pthread_cancel(pthread_self()); // pthread_self()获取PID
 ```
 
-## <div align="center"> 数据库连接池 ./CGImysql/sql_connection_pool.h :smile:</div> 
+## <div align="center"> 数据库连接池 [./CGImysql/sql_connection_pool.h](CGImysql/sql_connection_pool.h) :smile:</div> 
 > 每一个HTTP连接获取一个数据库连接，获取其中的用户账号密码进行对比，而后再释放该数据库连接 \
 > 在程序初始化的时候，集中创建多个数据库连接，并把他们集中管理，供程序使用，可以保证较快的数据库读写速度，更加安全可靠 \
 > 类似于线程池的操作
@@ -237,8 +237,10 @@ typedef struct st_mysql_field {
     - 不需要显式地释放资源。
     - 采用这种方式，对象所需的资源只在其生命期内始终保持有效
 
-## <div align="center"> HTTP连接 ./http/http_conn.h :smile:</div> 
-### HTTP介绍
+## <div align="center"> HTTP连接 [./http/http_conn.h](http/http_conn.h) :smile:</div> 
+
+<details>
+<summary> <b> 1、HTTP介绍 </b> </summary>
 
 #### HTTP报文
 - 请求报文（浏览器向服务器发送）
@@ -257,7 +259,6 @@ typedef struct st_mysql_field {
 | CONNECT | HTTP/1.1协议中预留给能够将连接改为管道方式的代理服务器 |
 | OPTIONS | 允许客服端查看服务器的性能 |
 | TRACE | 回显服务器收到的请求，用于测试和诊断 |
-
 
 #### HTTP状态码
 - 1xx：指示信息--表示请求已接收，继续处理
@@ -278,3 +279,242 @@ typedef struct st_mysql_field {
 - 处理连接请求 浏览器端发出http连接请求，主线程创建http对象接收请求并将所有数据读入对应buffer，将该对象插入任务队列，等待工作线程从任务队列中取出一个任务进行处理
 - 处理报文请求 工作线程取出任务后，调用进程处理函数，通过主、从状态机对请求报文进行解析
 - 返回响应报文 解析完之后，生成响应报文，返回给浏览器端
+
+</details>
+
+---
+
+### 2、HTTP处理连接请求 
+### （1）服务器接收http请求
+```c++
+#include <sys/socket.h>
+#include <netinet/in.h>
+/* 创建监听socket文件描述符 */
+int listenfd = socket(PF_INET, SOCK_STREAM, 0);
+/* 创建监听socket的TCP/IP的IPV4 socket地址 */
+struct sockaddr_in address;
+bzero(&address, sizeof(address));
+address.sin_family = AF_INET;
+address.sin_addr.s_addr = htonl(INADDR_ANY);  /* INADDR_ANY：将套接字绑定到所有可用的接口 */
+address.sin_port = htons(port);
+
+int flag = 1;
+/* SO_REUSEADDR 允许端口被重复使用 */
+setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
+/* 绑定socket和它的地址 */
+ret = bind(listenfd, (struct sockaddr*)&address, sizeof(address));  
+/* 创建监听队列以存放待处理的客户连接，在这些客户连接被accept()之前 */
+ret = listen(listenfd, 5);
+```
+
+> 服务器端主线程创建http对象接收请求并将所有数据读入对应buffer，将该对象插入任务队列后，工作线程从任务队列中取出一个任务进行处理
+> 各子线程通过process函数对任务进行处理，调用process_read函数和process_write函数分别完成报文解析与报文响应两个任务
+
+### （2）http 读取请求报文 http_coon::read_once
+```c++
+int recv( SOCKET s, char FAR *buf, int len, int flags);
+// 指定接收端套接字描述符
+// 指明一个缓冲区，该缓冲区用来存放recv函数接收到的数据
+// 指明buf的长度
+// flag设0
+```
+
+### （3）解析报文 http_coon::process_read
+- 判断条件
+    - 主状态机转移到CHECK_STATE_CONTENT，该条件涉及解析消息体
+    - 从状态机转移到LINE_OK，该条件涉及解析请求行和请求头部
+- 循环体
+    - 从状态机读取数据 prase_line()
+    - get_line() 获取 text
+    - 主状态机解析text 后parse_request_line(text)/parse_headers(text)/parse_content(text)
+
+- 从状态机 解析报文 http_conn::parse_line()
+    - 在HTTP报文中，每一行的数据由\r\n作为结束字符，空行则是仅仅是字符\r\n
+    - 读到\r
+        - 若下一位读到末尾 返回LINE_OPEN
+        - 若下一位读到\n 置为\0\0 m_checked_idx指向下一行头部，返回LINE_OK
+        - 否则 语法发送错误 返回LINE_BAD
+    - 读到\n
+        - 若前一个为\r 置为\0\0 m_checked_idx指向下一行头部，返回LINE_OK
+    - 都不是 继续接收 返回LINE_OPEN
+
+#### 主状态机
+```
+GET /562f2.jpg HTTP/1.1
+Host:img.mukewang.com
+User-Agent:Mozilla/5.0 (Windows NT 10.0; WOW64)
+AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.106 Safari/537.36
+Accept:image/webp,image/*,*/*;q=0.8
+Referer:http://www.imooc.com/
+Accept-Encoding:gzip, deflate, sdch
+Accept-Language:zh-CN,zh;q=0.8
+空行
+请求数据为空
+```
+- parse_request_line() 处理请求行 涉及strpbrk/strcasecmp/strspn
+- parse_headers()
+    - 空行 
+        - 若content-length为0则是GET请求 解析结束 
+        - 不为0 为POST请求，则状态转移到CHECK_STATE_CONTENT
+    - 不为空 分析connection字段，content-length，host字段 
+        - connection判断长连接还是短连接 
+        - content-length读取post请求的消息体长度
+- parse_content()
+    - 仅用于解析POST请求
+    - 用于保存post请求消息体，为后面的登录和注册做准备
+
+### （4）响应报文  http_coon::process_write
+> 服务器子线程完成报文的解析与响应；主线程监测读写事件，调用read_once和http_conn::write完成数据的读取与发送
+
+#### mmap 
+> 用于将一个文件或其他对象映射到内存，提高文件的访问速度
+
+```c++
+void* mmap(void* start,size_t length,int prot,int flags,int fd,off_t offset);
+int munmap(void* start,size_t length);
+```
+
+#### 1）do_request
+- m_url有如下可能
+    - / GET请求 跳转欢迎访问页面
+    - /0 POST请求 跳转注册页面
+    - /1 POST请求 跳转登录界面
+    - /2CGISQL.cgi POST请求 登录校验
+        - 验证成功跳转 资源请求成功页面
+        - 验证失败跳转 登录失败页面
+    - /3CGISQL.cgi POST请求 注册校验
+        - 注册成功跳转 登录页面
+        - 注册失败跳转 注册失败页面
+    - /5 POST 请求 跳转图片请求页面
+    - /6 POST请求 跳转视频请求页面
+    - /7 POST请求 跳转关注页面
+
+#### 2）process_write 向m_write_buf中写入响应报文
+> 服务器子线程调用process_write向m_write_buf中写入响应报文
+> 
+- add_status_line
+- add_headers
+    - add_content_length(int content_len)
+    - add_linger()
+    - add_blank_line()
+- add_content
+> 均依赖于add_reaponse函数
+- add_reaponse
+- 两种响应报文
+    - 请求文件 声明两个iovec 第一个指向m_write_buf 第二个指向mmap的地址m_file_address
+    - 请求出错 只申请一个iovec 指向m_write_buf
+
+<details>
+<summary> 相关函数 </summary>
+
+```c++
+// 在一次函数调用中写多个非连续缓冲区，有时也将这该函数称为聚集写
+// filedes表示文件描述符
+// iov为io向量机制结构体iovec
+// iovcnt为结构体的个数
+#include <sys/uio.h>
+ssize_t writev(int filedes, const struct iovec *iov, int iovcnt);
+
+// 向量元素
+struct iovec {
+    void      *iov_base;      /* starting address of buffer */
+    size_t    iov_len;        /* size of buffer */
+};
+
+// stat函数用于取得指定文件的文件属性，并将文件属性存储在结构体stat里
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+//获取文件属性，存储在statbuf中
+int stat(const char *pathname, struct stat *statbuf);
+
+struct stat 
+{
+   mode_t    st_mode;        /* 文件类型和权限 */
+   off_t     st_size;        /* 文件大小，字节数*/
+};
+
+// 向一个字符串缓冲区打印格式化字符串，且可以限定打印的格式化字符串的最大长度
+int vsnprintf (char * sbuf, size_t n, const char * format, va_list arg );
+```
+</details>
+
+#### 3）http_conn::write 将响应报文发送给浏览器端
+> 服务器子线程调用process_write完成响应报文，随后注册epollout事件。服务器主线程检测写事件，并调用http_conn::write函数将响应报文发送给浏览器端
+
+
+### 3、epoll
+>  I/O event notification facility
+> linux2.6内核的一个新系统调用
+> sys/epoll.h
+> 项目中epoll相关代码部分包括非阻塞模式、内核事件表注册事件、删除事件、重置EPOLLONESHOT事件四种
+
+<details>
+<summary> epoll相关 </summary>
+
+### API
+```c++
+// 创建epoll实例 返回fd
+int epoll_create (int __size); // __size无用
+int epoll_create1 (int __flags);
+
+// 将监听的文件描述符添加到epoll实例中 成功返回0
+int epoll_ctl (int __epfd, int __op, int __fd, struct epoll_event *__event);
+
+// 等待epoll事件从epoll实例中发生， 并返回事件以及对应文件描述符
+int epoll_wait (int __epfd, struct epoll_event *__events, int __maxevents, int __timeout);
+int epoll_pwait (int __epfd, struct epoll_event *__events, int __maxevents, int __timeout, const __sigset_t *__ss);
+
+typedef union epoll_data
+{
+  void *ptr;
+  int fd;
+  uint32_t u32;
+  uint64_t u64;
+} epoll_data_t;
+
+struct epoll_event
+{
+  uint32_t events;	/* Epoll events */
+  epoll_data_t data;	/* User data variable */
+} __EPOLL_PACKED;
+```
+### epoll事件类型
+- EPOLLIN：表示对应的文件描述符**可以读（包括对端SOCKET正常关闭）**
+- EPOLLOUT：表示对应的文件描述符**可以写**
+- EPOLLPRI：表示对应的文件描述符**有紧急的数据可读**
+- EPOLLERR：表示对应的文件描述符**发生错误**
+- EPOLLHUP：表示对应的文件描述符**被挂断**
+- EPOLLET：将EPOLL设为**边缘触发(Edge Triggered)模式**
+- EPOLLONESHOT：**只监听一次事件**，当监听完这次事件之后，如果还需要继续监听这个socket的话，需要再次把这个socket加入到EPOLL队列里 
+- EPOLLRDHUP：表示读关闭，对端关闭，不是所有的内核版本都支持
+
+### op动作
+- EPOLL_CTL_ADD (注册新的fd到epfd)
+- EPOLL_CTL_MOD (修改已经注册的fd的监听事件)
+- EPOLL_CTL_DEL (从epfd删除一个fd)
+
+### 设置非阻塞模式
+- fcntl 根据文件描述词来操作文件的特性
+```c++
+#include <unistd.h>
+#include <fcntl.h>
+
+int fcntl(int fd, int cmd);
+
+int fcntl(int fd, int cmd, long arg);         
+
+int fcntl(int fd, int cmd, struct flock *lock);
+
+// 复制一个现有的描述符（cmd=F_DUPFD）
+// 获得／设置文件描述符标记(cmd=F_GETFD或F_SETFD)
+// 获得／设置文件状态标记(cmd=F_GETFL或F_SETFL)
+// 获得／设置异步I/O所有权(cmd=F_GETOWN或F_SETOWN)
+// 获得／设置记录锁(cmd=F_GETLK,F_SETLK或F_SETLKW)
+```
+
+</details>
+
+
+## <div align="center"> 定时器 [./timer/lst_timer.h](./timer/lst_timer.h) :smile:</div> 
