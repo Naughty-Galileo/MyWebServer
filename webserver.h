@@ -25,9 +25,10 @@ public:
     WebServer();
     ~WebServer();
 
+    // 全部赋值给成员变量
     void init(int port , string user, string passWord, string databaseName,
               int log_write , int opt_linger, int trigmode, int sql_num,
-              int thread_num, int close_log, int actor_model);
+              int thread_num, int close_log, int actor_model); 
 
     void thread_pool();
     void sql_pool();
@@ -44,15 +45,15 @@ public:
     void dealwithwrite(int sockfd);
 
 public:
-    //基础
+    // 基础参数
     int m_port;
-    char *m_root;
+    char *m_root; // 源文件目录 .../MyWebServer/root/
     int m_log_write;
     int m_close_log;
     int m_actormodel;
 
     int m_pipefd[2];
-    int m_epollfd;
+    int m_epollfd;  // 
     http_conn *users;
 
     // 数据库相关
@@ -69,8 +70,8 @@ public:
     // epoll_event相关
     epoll_event events[MAX_EVENT_NUMBER];
 
-    int m_listenfd;
-    int m_OPT_LINGER;
+    int m_listenfd;  // 监听socket
+    int m_OPT_LINGER; // 优雅关闭
     int m_TRIGMode;
     int m_LISTENTrigmode;
     int m_CONNTrigmode;
