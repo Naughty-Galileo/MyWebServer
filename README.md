@@ -684,3 +684,18 @@ addsig(SIGTERM, sig_handler, false);
 ```
 ---
 
+## <div align="center"> 日志系统 [./log/log.h](./log/log.h) :smile:</div> 
+
+- 日志文件
+    - 局部变量的懒汉模式 单例
+    - 生成日志文件 判断同步和异步方式
+- 同步
+    - 判断是否分文件
+    - 直接格式化输出内容，将信息写入日志文件
+- 异步
+    - 判断是否分文件
+    - 格式化输出内容，将内容写入阻塞队列，创建一个写线程，从阻塞队列取出内容写入日志文件
+
+
+## <div align="center"> webserver [./webserver.h](./webserver.h) :smile:</div> 
+
