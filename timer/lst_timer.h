@@ -23,19 +23,20 @@
 
 #include <time.h>
 #include "../log/log.h"
+#include "wheel_timer.h"
 
 class util_timer;
 
-// 连接资源
-struct client_data
-{
-    // 客户端socket地址
-    sockaddr_in address;
-    // socket文件描述符
-    int sockfd;
-    // 定时器
-    util_timer *timer;
-};
+// // 连接资源
+// struct client_data
+// {
+//     // 客户端socket地址
+//     sockaddr_in address;
+//     // socket文件描述符
+//     int sockfd;
+//     // 定时器
+//     util_timer *timer;
+// };
 
 // 定时器
 class util_timer
@@ -102,7 +103,8 @@ public:
 
 public:
     static int *u_pipefd;
-    sort_timer_lst m_timer_lst;
+    // sort_timer_lst m_timer_lst;
+    time_wheel m_timer_lst;
     static int u_epollfd;
     int m_TIMESLOT;
 };
